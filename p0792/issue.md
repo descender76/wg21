@@ -3,22 +3,22 @@ breaks: false
 ---
 
 <style type="text/css">
-ins { background-color: #A0FFA0 }
-s { background-color: #FFA0A0 }
+ins { background-color: #CCFFCC }
+s { background-color: #FFCACA }
 blockquote { color: inherit !important }
 </style>
 
 <table><tbody>
-<tr><th>Doc. no.:</th>    <td>D0792R6</td></tr>
-<tr><th>Date:</th>        <td>2021-12-31</td></tr>
-<tr><th>Audience:</th>    <td>LEWG, LWG</td></tr>
-<tr><th>Reply-to:</th>    <td>Vittorio Romeo &lt;vittorio.romeo@outlook.com&gt;</td></tr>
-<tr><th></th>    <td>Jarrad Waterloo &lt;descender76@gmail.com&gt;</td></tr>
-<tr><th></th>    <td>Zhihao Yuan &lt;zy@miator.net&gt;</td></tr>
+<tr><th>Doc. no.:</th>    <td>P0792R9</td></tr>
+<tr><th>Date:</th>        <td>2022-04-25</td></tr>
+<tr><th>Audience:</th>    <td>LWG</td></tr>
+<tr><th>Reply-to:</th>    <td>Vittorio Romeo &lt;vittorio.romeo@outlook.com&gt;<br>
+Zhihao Yuan &lt;zy@miator.net&gt;<br>
+Jarrad Waterloo &lt;descender76@gmail.com&gt;</tr>
 </tbody></table>
 
 
-# `function_ref`: a type-erased call proxy
+# `function_ref`: a type-erased callable reference
 
 ## Table of contents
 
@@ -26,32 +26,50 @@ blockquote { color: inherit !important }
 
 ## Changelog
 
-### R6
+#### R9
 
-- TODO
+- Declare the main template as variadic for future extension;
+- Allow declaring a variable of `function_ref` `constinit`.
 
-### R5
+#### R8
+
+- Stop supporting pointer-to-members;
+- Prevent assigning from callable objects other than function pointers while retaining copy assignment;
+- Consolidate the wording with better terminologies.
+
+#### R7
+
+- Clarify the proposal to handle function and function pointers in the same way.
+
+#### R6
+
+- Avoid double-wrapping existing references to callables;
+- Reworked the wording to follow the latest standardese;
+- Applied changes requested by LWG (2020-07);
+- Removed a deduction guide that is incompatible with explicit object parameters.
+
+#### R5
 
 - Removed "qualifiers" from `operator()` specification (typo);
 
-### R4
+#### R4
 
 - Removed `constexpr` due to implementation concerns;
 - Explicitly say that the type is trivially copyable;
 - Added brief before synopsis;
 - Reworded specification following P1369.
 
-### R3
+#### R3
 
 - Constructing or assigning from `std::function` no longer has a precondition;
 - `function_ref::operator()` is now unconditionally `const`-qualified.
 
-### R2
+#### R2
 
 - Made copy constructor and assignment operator `= default`;
 - Added _exposition only_ data members.
 
-### R1
+#### R1
 
 - Removed empty state, comparisons with `nullptr`, and default constructor;
 - Added support for `noexcept` and `const`-qualified function signatures;
@@ -66,554 +84,593 @@ blockquote { color: inherit !important }
 This paper proposes the addition of `function_ref<R(Args...)>`, a _vocabulary type_ with reference semantics for passing entities to call, to the standard library.
 
 
-## Design considerations
+## Motivating examples
 
-This paper went through LEWG at R5, with a number of consensus reached and applied to the wording:
-
-1. do not provide `target()` or `target_type`
-2. no `operator bool`, default constructor, or comparison with `nullptr`
-3. `R(Args...) noexcept` specializations
-4. `R(Args...) const` specializations
-5. require the target entity to be _Lvalue-Callable_
-6. `operator()` is unconditionally `const`
-7. `function_ref` is the right name
-
-One design question remains not fully understood by many: how should a function, a function pointer, or a pointer-to-member initialize `function_ref`? The sixth revision of the paper aims to provide full background and dive deep into that question.
+Here's one example use case that benefits from *higher-order functions*: a `retry(n, f)` function that attempts to call `f` up to `n` times synchronously until success. This example might model the real-world scenario of repeatedly querying a flaky web service.
 
 ```cpp
-auto retry(std::size_t times,
-           function_ref<std::optional<payload>()> action)
+using payload = std::optional< /* ... */ >;
+
+// Repeatedly invokes `action` up to `times` repetitions.
+// Immediately returns if `action` returns a valid `payload`.
+// Returns `std::nullopt` otherwise.
+payload retry(size_t times, /* ????? */ action);
+```
+
+The passed-in `action` should be a callable entity that takes no arguments and returns a `payload`. Let's see how to implemented `retry` with various techniques.
+
+
+### Using function pointers
+
+```cpp
+payload retry(size_t times, payload(*action)())
 {
     /* ... */
 }
 ```
 
-## Discussion
+- **Advantages**:
 
+  - Easy to implement: no template, nor constraint. The function pointer type has a signature that nails down which functions to pass.
 
-## Changes to `<functional>` header
+  - Minimal overhead: no allocations, no exceptions, and major calling conventions can pass a function pointer in a register.
 
-Add the following to `[functional.syn]`:
+- **Drawbacks**:
 
-> ```cpp
-> namespace std
-> {
->     // ...
->
->     template <typename Signature> class function_ref;
->
->     template <typename Signature>
->     void swap(function_ref<Signature>& lhs, function_ref<Signature>& rhs) noexcept;
->
->     // ...
-> }
-> ```
+  - A function is usually not stateful, nor does captureless closure objects. One cannot pass other function objects in C++ this way.
 
-
-
-## Class synopsis
-
-Create a new section "Class template `function_ref`", `[functionref]`" with the following:
-
-> ```cpp
-> namespace std
-> {
->     template <typename Signature>
->     class function_ref
->     {
->         void* erased_object; // exposition only
->
->         R(*erased_function)(Args...); // exposition only
->         // `R`, and `Args...` are the return type, and the parameter-type-list,
->         // of the function type `Signature`, respectively.
->
->     public:
->         function_ref(const function_ref&) noexcept = default;
->
->         template <typename F>
->         function_ref(F&&);
->
->         function_ref& operator=(const function_ref&) noexcept = default;
->
->         template <typename F>
->         function_ref& operator=(F&&);
->
->         void swap(function_ref&) noexcept;
->
->         R operator()(Args...) const noexcept(see below);
->         // `R` and `Args...` are the return type and the parameter-type-list
->         // of the function type `Signature`, respectively.
->     };
->
->     template <typename Signature>
->     void swap(function_ref<Signature>&, function_ref<Signature>&) noexcept;
->
->     template <typename R, typename... Args>
->     function_ref(R (*)(Args...)) -> function_ref<R(Args...)>;
->
->     template <typename R, typename... Args>
->     function_ref(R (*)(Args...) noexcept) -> function_ref<R(Args...) noexcept>;
->
->     template <typename F>
->     function_ref(F) -> function_ref<see below>;
-> }
-> ```
->
-> 1. `function_ref<Signature>` is a `Cpp17CopyConstructible` and `Cpp17CopyAssignable` reference to an `Invocable` object with signature `Signature`.
->
-> 2. `function_ref<Signature>` is a trivially copyable type.
->
-> 3. The template argument `Signature` shall be a non-`volatile`-qualified function type.
-
-
-
-
-
-
-
-## Specification
+### Using a template
 
 ```cpp
-template <typename F>
-function_ref(F&& f);
+template<class F>
+auto retry(size_t times, F&& action)
+requires std::is_invocable_r_v<payload, F>
+{
+    /* ... */
+}
 ```
 
-* *Constraints:* `is_same_v<remove_cvref_t<F>, function_ref>` is `false` and
+- **Advantages**:
 
-    * If `Signature` has a `noexcept` specifier: `is_nothrow_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`;
+  - Support arbitrary function objects, such as closures with captures.
 
-    * Otherwise: `is_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`.
+  - Zero-overhead: no allocations, no exceptions, no indirections.
 
-    Where `R`, `Args...`, and `cv-qualifiers` are the *return type*, the *parameter-type-list*, and the sequence "*cv-qualifier-seq-opt*" of the function type `Signature`, respectively.
+- **Drawbacks**:
 
-* *Expects:* `f` is neither a null function pointer value nor a null member pointer value.
+  - Harder to implement: users must constrain `action`'s signature.
 
-* *Effects:* Constructs a `function_ref` referring to `f`.
+  - Fail to support separable compilation: the implementation of `retry` must appear in a header file. A slight change at the call site will cause recompilation of the function body.
 
-* *Remarks:* `erased_object` will point to `f`. `erased_function` will point to a function whose invocation is equivalent to `return INVOKE<R>(f, std::forward<Args>(xs)...);`, where `f` is qualified with the same *cv-qualifiers* as the function type `Signature`.
+### Using `std::function` or `std::move_only_function`
+
+```cpp
+payload retry(size_t times, std::move_only_function<payload()> action)
+{
+    /* ... */
+}
+```
+
+- **Advantages**:
+
+  - Take more _callable objects_, from closures to pointer-to-members.
+
+  - Easy to implement: no need to use a template or any explicit constraint. `std::function` and `std::move_only_function` constructor is constrained.
+
+- **Drawbacks**:
+
+  - `std::function` and `std::move_only_function`'s converting constructor[^p0288r9] require their target objects to be copy-constructible or move-constructible, respectively;
+
+  - Comes with potentially significant overhead:
+
+    - The call wrappers start to allocate the target objects when they do not fit in a small buffer, introducing more indirection when calling the objects.
+
+    - No calling conventions can pass these call wrappers in registers.
+
+    - Modern compilers cannot inline these call wrappers, often resulting in inferior codegen then previously mentioned techniques.
+
+  One rarely known technique is to pass callable objects to call wrappers via a `std::reference_wrapper`:
+
+  ```cpp
+  auto result = retry(3, std::ref(downloader));
+  ```
+
+  But users cannot replace the `downloader` in the example with a lambda expression as such an expression is an rvalue. Meanwhile, all the machinery that implements type-erased copying or moving must still be present in the codegen.
+
+
+
+### Using the proposed `function_ref`
+
+```cpp
+payload retry(size_t times, function_ref<payload()> action)
+{
+    /* ... */
+}
+```
+
+- **Advantages**:
+
+  - Takes any _callable objects_ regardless of whether they are constructible.
+
+  - Easy to implement: no need to use a template or any constraint. `function_ref` is constrained.
+
+  - Clean ownership semantics: `function_ref` has reference semantics as its name suggests.
+
+  - Minimal overhead: no allocations, no exceptions, certain calling conventions can pass `function_ref` in registers.
+
+    - Modern compilers can perform tail-call optimization when generating thunks. If the function body is visible, they can deliver optimal codegen, identical to the template solution.
+
+
+## Design considerations
+
+This paper went through LEWG at R5, with a number of consensuses reached and applied to the wording:
+
+1. Do not provide `target()` or `target_type`;
+2. Do not provide `operator bool`, default constructor, or comparison with `nullptr`;
+3. Provide `R(Args...) noexcept` specializations;
+4. Provide `R(Args...) const` specializations;
+5. Require the target entity to be _Lvalue-Callable_;
+6. Make `operator()` unconditionally `const`;
+7. Choose `function_ref` as the right name.
+
+One design question remains not fully understood by many: how should a function pointer initialize `function_ref`?
+
+In a typical scenario, there is no lifetime issue no matter whether the `download` entity below is a function, a function pointer, or a closure:
+
+```cpp
+auto result = retry(3, download); // always safe
+```
+
+However, even if the users use `function_ref` only as parameters initially, it's not uncommon to evolve the API by grouping parameters into structures,
+
+```cpp
+struct retry_options
+{
+    size_t times;
+    function_ref<payload()> action;
+    seconds step_back;
+};
+
+payload retry(retry_options);
+
+/* ... */
+
+auto result = retry({.times = 3,
+                     .action = download,
+                     .step_back = 1.5s});
+
+```
+
+and structures start to need constructors or factories to simplify initialization:
+
+```cpp
+auto opt = default_strategy();
+opt.action = download;
+auto result = retry(opt);
+```
+
+According to the P0792R5[^p0792r5] wording, the code has well-defined behavior if `download` is a function. However, one **cannot** write the code as
+
+```cpp
+auto opt = default_strategy();
+opt.action = &download;
+auto result = retry(opt);
+```
+
+since this will create a `function_ref` with a dangling object pointer that points to a temporary object -- the function pointer.
+
+In other words, the following code also has undefined behavior:
+
+```cpp
+auto opt = default_strategy();
+opt.action = ssh.get_download_callback(); // a function pointer
+auto result = retry(opt);
+```
+
+The users have to write the following to get well-defined behavior.
+
+```cpp
+auto opt = default_strategy();
+opt.action = *ssh.get_download_callback();
+auto result = retry(opt);
+```
+
+### Survey
+
+We collected the following `function_ref` implementations available today:
+
+<span style="color: rgb(9, 99, 125)">■</span>[`llvm::function_ref`](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/ADT/STLExtras.h) -- from LLVM[^llvmfuncref]
+
+<span style="color: rgb(132, 190, 106);">■</span>[`tl::function_ref`](https://github.com/TartanLlama/function_ref/blob/master/include/tl/function_ref.hpp) -- by Sy Brand
+
+<span style="color: rgb(43, 57, 144);">■</span>[`folly::FunctionRef`](https://github.com/facebook/folly/blob/main/folly/Function.h) -- from Meta
+
+<span style="color: rgb(255, 207, 171);">■</span>[`gdb::function_view`](https://github.com/bminor/binutils-gdb/blob/master/gdbsupport/function-view.h) -- from GNU
+
+<span style="color: rgb(158, 16, 32);">■</span>[`type_safe::function_ref`](https://github.com/foonathan/type_safe/blob/main/include/type_safe/reference.hpp) -- by Jonathan Müller[^jmfunctionview]
+
+<span style="color: rgb(227, 178, 0);">■</span>[`absl::function_ref`](https://github.com/abseil/abseil-cpp/blob/master/absl/functional/function_ref.h) -- from Google
+
+They have diverging behaviors when initialized from function pointers:
+
+<table>
+<caption>Behavior A.1: Stores a function pointer if initialized from a function, stores a pointer to function pointer if initialized from a function pointer</caption>
+<thead>
+<tr><th>Outcome</th><th>Library</th></tr>
+</thead>
+<tbody>
+
+<tr>
+<td>
+
+Undefined:
+
+```cpp
+opt.action = ssh.get_download_callback();
+```
+
+Well-defined:
+```cpp
+opt.action = download;
+```
+
+</td>
+<td>
+
+<span style="color: rgb(9, 99, 125)">■</span>`llvm::function_ref`
+
+<span style="color: rgb(132, 190, 106);">■</span>`tl::function_ref`
+
+</td></tr>
+</tbody></table>
+
+<table>
+<caption>Behavior A.2: Stores a function pointer if initialized from a function or a function pointer</caption>
+<thead>
+<tr><th>Outcome</th><th>Library</th></tr>
+</thead>
+<tbody>
+
+<tr>
+<td>
+
+Well-defined:
+
+```cpp
+opt.action = ssh.get_download_callback();
+```
+
+Well-defined:
+```cpp
+opt.action = download;
+```
+
+</td>
+<td>
+
+<span style="color: rgb(43, 57, 144);">■</span>`folly::FunctionRef`
+
+<span style="color: rgb(255, 207, 171);">■</span>`gdb::function_view`
+
+<span style="color: rgb(158, 16, 32);">■</span>`type_safe::function_ref`
+
+<span style="color: rgb(227, 178, 0);">■</span>`absl::function_ref`
+
+</td></tr>
+</tbody></table>
+
+P0792R5 wording gives **Behavior A.1**.
+
+A related question is what happens when initialized from pointer-to-members. In the following tables, assume `&Ssh::connect` is a pointer to member function:
+
+<table>
+<caption>Behavior B.1: Stores a pointer to pointer-to-member if initialized from a pointer-to-member</caption>
+<thead>
+<tr><th>Outcome</th><th>Library</th></tr>
+</thead>
+<tbody>
+
+<tr>
+<td>
+
+Well-defined:
+
+```cpp
+lib.send_cmd(&Ssh::connect);
+```
+
+Undefined:
+```cpp
+function_ref<void(Ssh&)> cmd = &Ssh::connect;
+```
+
+</td>
+<td>
+
+<span style="color: rgb(132, 190, 106);">■</span>`tl::function_ref`
+
+<span style="color: rgb(43, 57, 144);">■</span>`folly::FunctionRef`
+
+<span style="color: rgb(227, 178, 0);">■</span>`absl::function_ref`
+
+</td></tr>
+</tbody></table>
+
+<table>
+<caption>Behavior B.2: Only supports callable entities with function call expression</caption>
+<thead>
+<tr><th>Outcome</th><th>Library</th></tr>
+</thead>
+<tbody>
+
+<tr>
+<td>
+
+Ill-formed:
+
+```cpp
+lib.send_cmd(&Ssh::connect);
+```
+
+Ill-formed:
+```cpp
+function_ref<void(Ssh&)> cmd = &Ssh::connect;
+```
+
+Well-defined:
+
+```cpp
+lib.send_cmd(std::mem_fn(&Ssh::connect));
+```
+
+</td>
+<td>
+
+<span style="color: rgb(9, 99, 125)">■</span>`llvm::function_ref`
+
+<span style="color: rgb(255, 207, 171);">■</span>`gdb::function_view`
+
+<span style="color: rgb(158, 16, 32);">■</span>`type_safe::function_ref`
+
+</td></tr>
+</tbody></table>
+
+P0792R5-R7 wording gives **Behavior B.1**.
+
+
+### Additional information
+
+P2472R1 "make `function_ref` more functional" [^p2472r1] suggests a way to initialize `function_ref` from pointer-to-members without dangling in all contexts:
+
+```cpp
+function_ref<void(Ssh&)> cmd = nontype<&Ssh::connect>;
+```
+
+Not convertible from pointer-to-members means that `function_ref` does not need to use `invoke_r` in the implementation, improving debug codegen in specific toolchains with little effort.
+
+Making `function_ref` large enough to fit a thunk pointer plus any pointer-to-member-function may render `std::function_ref` irrelevant in the real world. Some platform ABIs can pass a trivially copyable type of a 2-word size in registers and cannot do the same to a bigger type. Here is some LLVM IR to show the difference:
+https://godbolt.org/z/Ke3475vz8.
+
+For good or bad, the expression <code>&amp;_qualified-id_</code> that retrieves pointer-to-member shares grammar with the expression that gets a pointer to explicit object member functions. [[expr.unary.op/3]](https://eel.is/c++draft/expr.unary.op#3)
+
+
+## Design decisions
+
+- **Behavior A.2** is incorporated to eliminate the difference between initializing `function_ref` from a function and initializing `function_ref` from a function pointer.
+
+- **Behavior B.2** is incorporated to reduce potential damage at a small cost. This change will reflect on the constructor's constraints.
+
+- LEWG further requested making converting assignment from anything other than functions and function pointers ill-formed. Note that `function_ref` will still be copy-assignable.
+
+
+## Wording
+
+The wording is relative to [N4901](https://wg21.link/N4901).
+
+Add the template to [[functional.syn]](https://eel.is/c++draft/functional.syn), header `<functional>` synopsis:
+
+> [...]
+<pre>
+  <i>// [func.wrap.move], move only wrapper</i>
+  template&lt;class... S&gt; class move_only_function;        <i>// not defined</i>
+  template&lt;class R, class... ArgTypes&gt;
+    class move_only_function&lt;R(ArgTypes...) <i>cv ref</i> noexcept(<i>noex</i>)&gt;; <i>// see below</i>
+
+  <ins><i>// [func.wrap.ref], non-owning wrapper</i>
+  template&lt;class... S&gt; class function_ref;              <i>// not defined</i>
+  template&lt;class R, class... ArgTypes&gt;
+    class function_ref&lt;R(ArgTypes...) <i>cv</i> noexcept(<i>noex</i>)&gt;;           <i>// see below</i></ins>
+</pre>
+> [...]
+
+
+Create a new section "Non-owning wrapper", `[func.wrap.ref]` with the following:
+
+> ## General
+> [func.wrap.ref.general]
+>
+> The header provides partial specializations of `function_ref` for each combination of the possible replacements of the placeholders *cv* and *noex* where:
+>
+> - *cv* is either `const` or empty.
+> - *noex* is either `true` or `false`.
+>
+
+<br>
+
+> ### Class template `function_ref`
+> [func.wrap.ref.class]
+
+<pre>
+namespace std
+{
+  template&lt;class... S&gt; class function_ref;    <i>// not defined</i>
+
+  template&lt;class R, class... ArgTypes&gt;
+  class function_ref&lt;R(ArgTypes...) <i>cv</i> noexcept(<i>noex</i>)&gt;
+  {
+  public:
+    <i>// [func.wrap.ref.ctor], constructors and assignment operators</i>
+    template&lt;class F&gt; function_ref(F*) noexcept;
+    template&lt;class F&gt; constexpr function_ref(F&amp;&amp;) noexcept;
+
+    constexpr function_ref(const function_ref&amp;) noexcept = default;
+    constexpr function_ref&amp; operator=(const function_ref&amp;) noexcept = default;
+    template&lt;class T&gt; function_ref&amp; operator=(T) = delete;
+
+    <i>// [func.wrap.ref.inv], invocation</i>
+    R operator()(ArgTypes...) const noexcept(<i>noex</i>);
+  private:
+    template&lt;class... T&gt;
+      static constexpr bool <i>is-invocable-using</i> = <i>see below</i>;   <i>// exposition only</i>
+  };
+
+  <i>// [func.wrap.ref.deduct], deduction guides</i>
+  template&lt;class F&gt;
+    function_ref(F*) -> function_ref&lt;F&gt;;
+}
+</pre>
+
+<br>
+
+> An object of class <code>function_ref&lt;R(Args\.\.\.) _cv_ noexcept(_noex_)&gt;</code> stores a pointer to thunk _`thunk-ptr`_ and a bound entity _`bound-entity`_.
+> The bound entity has an implementation-defined type `BoundEntityType`.
+> `BoundEntityType` is trivially copyable and models `copyable`.
+> `BoundEntityType` is capable of storing a pointer to object value, a pointer to function value, or a null pointer value.
+> A thunk is a function of signature <code>R(BoundEntityType, Args&amp;&amp;\.\.\.) noexcept(_noex_)</code>.
+>
+> Each specialization of `function_ref` is a trivially copyable type [[basic.types]](https://eel.is/c++draft/basic.types).
+>
+> Within this subclause, _`call-args`_ is an argument pack with elements that have types `Args&&...` respectively.
+
+
+<br>
+<br>
+
+> ### Constructors and assignment operators
+> [func.wrap.ref.ctor]
+
+<pre>
+template&lt;class... T&gt;
+  static constexpr bool <i>is-invocable-using</i> = <i>see below</i>;
+</pre>
+> If *noex* is true, <code><i>is-invocable-using</i>&lt;T\.\.\.&gt;</code> is equal to:
+>
+> &nbsp;&nbsp;`is_nothrow_invocable_r_v<R, T..., ArgTypes...>`
+>
+> Otherwise, <code><i>is-invocable-using</i>&lt;T\.\.\.&gt;</code> is equal to:
+>
+> &nbsp;&nbsp;`is_invocable_r_v<R, T..., ArgTypes...>`
+>
+
+<br>
+
+```
+template<class F> function_ref(F* f);
+```
+> *Constraints:*
+> - `is_function_v<F>` is `true`, and
+> - <code><i>is-invocable-using</i>&lt;F&gt;</code> is `true`.
+>
+> *Effects:* Initializes _`bound-entity`_ with `f`, and _`thunk-ptr`_ to the address of a function such that <code>_thunk-ptr_(_bound-entity_, _call-args_\.\.\.)</code> is expression equivalent to <code>invoke_r&lt;R&gt;(f, _call-args_\.\.\.)</code>.
+>
+
+<br>
+
+```
+template<class F> constexpr function_ref(F&& f);
+```
+> Let `T` be `remove_reference_t<F>`.
+>
+> *Constraints:*
+> - `remove_cvref_t<F>` is not the same type as `function_ref`,
+> - `is_member_pointer_v<T>` is `false`, and
+> - <code><i>is-invocable-using</i>&lt;<i>cv</i> T&amp;&gt;</code> is `true`.
+>
+> *Effects:* Initializes _`bound-entity`_ with `addressof(f)`, and _`thunk-ptr`_ to address of a function such that <code>_thunk-ptr_(_bound-entity_, _call-args_\.\.\.)</code> is expression equivalent to <code>invoke_r&lt;R&gt;(static_cast&lt;_cv_ T&amp;&gt;(f), _call-args_\.\.\.)</code>.
+>
 
 <br>
 
 
-
-```cpp
-template <typename F>
-function_ref& operator=(F&&);
 ```
-
-* *Constraints:* `is_same_v<remove_cvref_t<F>, function_ref>` is `false` and
-
-    * If `Signature` has a `noexcept` specifier: `is_nothrow_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`;
-
-    * Otherwise: `is_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`.
-
-    Where `R`, `Args...`, and `cv-qualifiers` are the *return type*, the *parameter-type-list*, and the sequence "*cv-qualifier-seq-opt*" of the function type `Signature`, respectively.
-
-* *Expects:* `f` is neither a null function pointer value nor a null member pointer value.
-
-* *Ensures:* `*this` refers to `f`.
-
-* *Returns:* `*this`.
+template<class T> function_ref& operator=(T) = delete;
+```
+> *Constraints:*
+> - `T` is not the same type as `function_ref`, and
+> - `is_pointer_v<T>` is `false`.
+>
 
 <br>
-
-
-
-```cpp
-void swap(function_ref& rhs) noexcept;
-```
-
-* *Effects:* Exchanges the values of `*this` and `rhs`.
-
 <br>
 
-
-
-```cpp
-R operator()(Args... xs) noexcept(see below);
-```
-
-* *Effects:* Equivalent to `return INVOKE<R>(f, std::forward<Args>(xs)...);`, where `f` is the callable object referred to by `*this`, qualified with the same *cv-qualifiers* as the function type `Signature`.
-
-* *Remarks:* `R` and `Args...` are the return type and the parameter-type-list of the function type `Signature`, respectively. The expression inside `noexcept` is the sequence "noexcept-specifier-opt" of the function type `Signature`.
-
-<br>
-
-
-
-```cpp
-template <typename F>
-function_ref(F) -> function_ref<see below>;
-```
-
-* *Constraints:* `&F::operator()` is well-formed when treated as an unevaluated operand.
-
-* *Remarks:* If `decltype(&F::operator())` is of the form `R(G::*)(A...) qualifiers` for a class type `G`, then the deduced type is `function_ref<R(A...) qualifiers>`.
+> ### Invocation
+> [func.wrap.ref.inv]
+>
+<pre>
+R operator()(ArgTypes... args) const noexcept(<i>noex</i>);
+</pre>
+> *Preconditions*: _`bound-entity`_ does not store a null pointer value.
+>
+> *Effects:* Equivalent to
+> <code>return _thunk-ptr_(_bound-entity_, std::forward&lt;ArgTypes&gt;(args)\.\.\.);</code>
 
 <br>
-
-
-
-```cpp
-template <typename Signature>
-void swap(function_ref<Signature>& lhs, function_ref<Signature>& rhs) noexcept;
-```
-
-* *Effects:* Equivalent to `lhs.swap(rhs)`.
-
 <br>
 
+> ### Deduction guides
+> [func.wrap.ref.deduct]
+>
+```
+template<class F>
+  function_ref(F*) -> function_ref<F>;
+```
+> *Constraints:* `is_function_v<F>` is `true`.
+
+<br>
 
 
 ## Feature test macro
 
-Append to §17.3.1 General `[support.limits.general]`'s Table 36 one additional entry:
-
-| Macro name               | Value     | Headers        |
-| -------------------------|-----------|----------------|
-| `__cpp_lib_function_ref` | `201811L` | `<functional>` |
-
-## Specification Take 2
-
-> The following is relative to N4901.[5]
-> 
-> Insert the following in Header synopsis [version.syn], in section 2, below #define __cpp_lib_memory_resource 201603L
-> ```cpp
-> #define __cpp_lib_function_ref 20XXXXL // also in <functional>
-> ```
-> Let SECTION is a placeholder for the root of the section numbering for [functional].
-> 
-> Insert the following section in Header `<functional>` synopsis [functional.syn], at the end of SECTION.20, polymorphic function wrappers
-> ```cpp
-> template<class... S> class function_ref; // not defined
-> 
-> // Set of partial specializations of function_ref
-> template<class R, class... ArgTypes>
->   class function_ref<R(ArgTypes...) cv noexcept(noex)>; // ... see below
-> ```
-> Insert the following section at the end of Polymorphic function wrapper [func.wrap] at the end.
-> 
-> ###	SECTION.20.3 function_ref                                 [func.wrap.ref]
-> 
->  1  The header provides partial specializations of function_ref for
-> 	each combination of the possible replacements of the placeholders *cv* and
-> 	*noex* where:
-> 
-> (1.1)   — *cv* is either const or empty.
-> 
-> (1.2)   — *noex* is either true or false.
-> 
->  2  For each of the possible combinations of the placeholders mentioned above,
-> 	there is a placeholder inv-quals defined as follows:
-> 
-> (2.1)   — Let *inv-quals* be *cv*&
-> 
-> ###	SECTION.20.3.1 Class template function_ref            [func.wrap.ref.class]
-> ```cpp
-> namespace std {
-> template<class... S> class function_ref; // not defined
-> 
-> template<class R, class... ArgTypes>
-> class function_ref<R(ArgTypes...) cv noexcept(noex)> {
-> public:
->   using result_type = R;
-> 
->   // SECTION.20.3.2, construct/move/destroy
->   function_ref() noexcept;
->   function_ref(function_ref&&) noexcept;
->   template<class F> function_ref(F&&);
->
->   function_ref& operator=(function_ref&&);
->   template<class F> function_ref& operator=(F&&);
-> 
->   ~function_ref();
-> 
->   // SECTION.20.3.3, function_ref invocation
->   R operator()(ArgTypes...) cv noexcept(noex);
-> 
->   // SECTION.20.3.4, function_ref utility
->   void swap(function_ref&) noexcept;
-> 
->   friend void swap(function_ref&, function_ref&) noexcept;
-> 
-> private:
->   template<class VT>
-> 	static constexpr bool is-callable-from = see below; // exposition-only
-> };
-> }
-> ```
-> 1  The function_ref class template provides polymorphic wrappers that generalize
-> the notion of a callable object [func.def]. These wrappers can reference and
-> call arbitrary callable objects, given a call signature, allowing functions to
-> be first-class objects.
-> 
-> 2  Implementations are encouraged to avoid the use of dynamically allocated memory under any circumstance.
-> 
-> ### SECTION.20.3.3  Constructors and destructor                              [func.wrap.ref.con]
-> ```cpp
-> template<class VT>
-> 	  static constexpr bool is-callable-from = see below; // exposition-only
-> ```
-> 1  If noex is `true`, `is-callable-from<VT>` is equal to
->   `is_nothrow_invocable_r_v<R, VT cv ref, Args...> &&`
-> 	`is_nothrow_invocable_r_v<R, VT inv-quals, Args...>`.
-> Otherwise, `is-callable-from<VT>` is equal to
->   `is_invocable_r_v<R, VT cv ref, Args...> &&`
-> 	`is_invocable_r_v<R, VT inv-quals, Args...>`.
-> ```cpp
-> function_ref(function_ref& f) noexcept;
-> ```
-> 2        *Postconditions:* This constructor trivially copies the function_ref.
-> ```cpp
-> template<class F> function_ref(F&& f);
-> ```
-> 3        Let VT be `decay_t<F>`.
-> 
-> 4        *Constraints:*
-> 
-> (4.1)            — `remove_cvref_t<F>` is not the same type as function_ref, and
-> 
-> (4.2)            — `is-callable-from<VT>` is `true`.
-> 
-> (4.3)            — `F` is `Callable`.
-> 
-> 5        *Mandates:* `is_constructible_v<VT, F>` is `true`
-> 
-> 6        *Preconditions:* VT meets the Cpp17Destructible requirements, and if
-> 	  `is_move_constructible_v<VT>` is `true`, VT meets the Cpp17MoveConstructible
-> 	  requirements.
-> 
-> 7        *Postconditions:* `*this` has a target object unless any of the following hold:
-> 
-> (7.1)            — f is a null function pointer value, or
-> 
-> (7.2)            — f is a null member pointer value, or
-> 
-> (7.3)            — `remove_cvref_t<F>` is a specialization of the function_ref class template,
-> 			 and f has no target object.
-> 
-> 8        Otherwise, `*this` targets an object of type VT
-> 	  direct-non-list-initialized with `std::forward<F>(f)`.
-> 
-> 9       *Throws:* Any exception thrown by the initialization of the target object.
-> 	  May throw bad_alloc unless VT is a function pointer or a specialization of
-> 	  reference_wrapper.
-> ```cpp
-> function_ref& operator=(function_ref&& f);
-> ```
-> 10        *Effects:* This assignment operator is trivial.
-> 
-> 11        *Returns:* `*this`.
-> ```cpp
-> ~function_ref();
-> ```
-> 12        *Effects:* The destructor is trivial.
-> 
-> ### SECTION.20.3.4  Invocation                                              [func.wrap.ref.inv]
-> ```cpp
-> R operator()(ArgTypes... args) cv noexcept(noex);
-> ```
-> 1        *Preconditions:* `*this` has a target object.
-> 
-> 2        *Effects:* Equivalent to:
-> 	  `return INVOKE<R>(static_cast<F inv-quals>(f), std::forward<ArgTypes>(args)...);`
-> 	  where f is the target object of `*this` and f is lvalue of type F.
-> 
-> ### SECTION.20.3.5  Utility                                                 [func.wrap.ref.util]
-> ```cpp
-> void swap(function_ref& other) noexcept;
-> ```
-> 1        *Effects:* Exchanges the targets of `*this` and other.
-> ```cpp
-> friend void swap(function_ref& f1, function_ref& f2) noexcept;
-> ```
-> 2        *Effects:* Equivalent to: `f1.swap(f2)`.
-
-## Example implementation
-
-The most up-to-date implementation, created by Simon Brand, is available on [GitHub/TartanLlama/function_ref](https://github.com/TartanLlama/function_ref).
-
-An older example implementation is available here on [GitHub/SuperV1234/Experiments](https://github.com/SuperV1234/Experiments/blob/master/function_ref.cpp).
+> Insert the following to [[version.syn]](https://eel.is/c++draft/version.syn), header `<version>` synopsis, after `__cpp_lib_move_only_function`:
+<pre>
+#define __cpp_lib_function_ref 20XXXXL <i>// also in &lt;functional&gt</i>
+</pre>
 
 
+## Implementation Experience
 
-## Existing practice
+A complete implementation is available from
+<span style="color: rgb(185, 208, 240);">■</span>&nbsp;[zhihaoy/nontype_functional@p0792r8](https://github.com/zhihaoy/nontype_functional/tree/p0792r8).
 
-Many facilities similar to `function_ref` exist and are widely used in large codebases. Here are some examples:
-
-* The `llvm::function_ref` [^llvmfunctionref] class template is used throughout LLVM. A quick GitHub search on the LLVM organization reports hundreds of usages both in `llvm` and `clang` [^githubsearch0].
-
-* Facebook's Folly libraries [^folly] provide a `folly::FunctionRef` [^follyfunctionref] class template. A GitHub search shows that it's used in projects `proxygen` and `fbthrift` [^follyusages].
-
-* GNU's popular debugger, `gdb` [^gdb], uses `gdb::function_view` [^gdbfnview] throughout its code base. The documentation in the linked header file [^gdbfnview] is particularly well-written and greatly motivates the need for this facility.
-
-Additionally, combining results from GitHub searches *(excluding "`llvm`" and "`folly`")* for "`function_ref`" [^githubsearch1], "`function_view`" [^githubsearch2], "`FunctionRef`" [^githubsearch3], and "`FunctionView`" [^githubsearch4] roughly shows more than 2800 occurrences.
-
-
-
-## Possible issues
-
-Accepting temporaries in `function_ref`'s constructor is extremely useful in the most common use case: using it as a function parameter. E.g.
-
-```cpp
-void foo(function_ref<void()>);
-
-int main()
-{
-    foo([]{ });
-}
-```
-
-<div class="inline-link">
-
-[*(on wandbox.org)*](https://wandbox.org/permlink/BPtbPeQtErPGj4X7)
-
-</div>
-
-The usage shown above is completely safe: the temporary closure generated by the lambda expression is guarantee to live for the entirety of the call to `foo`. Unfortunately, this also means that the following code snippet will result in *undefined behavior*:
-
-```cpp
-int main()
-{
-    function_ref<void()> f{[]{ }};
-    // ...
-    f(); // undefined behavior
-}
-```
-
-<div class="inline-link">
-
-[*(on wandbox.org)*](https://wandbox.org/permlink/cQPEX2sKjCQjgIki)
-
-</div>
-
-The above closure is a temporary whose lifetime ends after the `function_ref` constructor call. The `function_ref` will store an address to a "dead" closure - invoking it will produce undefined behavior [^jmfunctionview]. As an example, `AddressSanitizer` detects an invalid memory access in this gist [^gistub]. Note that this problem is not unique to `function_ref`: the recently standardized `std::string_view` [^stringview] has the same problem [^jmstringview].
-
-I strongly believe that accepting temporaries is a "necessary evil" for both `function_ref` and `std::string_view`, as it enables countless valid use cases. The problem of dangling references has been always present in the language - a more general solution like Herb Sutter and Neil Macintosh's lifetime tracking [^lifetimes] would prevent mistakes without limiting the usefulness of view/reference classes.
+Many facilities similar to `function_ref` exist and are widely used in large codebases. See [Survey](#Survey) for details.
 
 
 ## Acknowledgments
 
 Thanks to **Agustín Bergé**, **Dietmar Kühl**, **Eric Niebler**, **Tim van Deurzen**, and **Alisdair Meredith** for providing very valuable feedback on earlier drafts of this proposal.
 
-
-
-
-
-
-
-## Annex: previously open questions
-
-* Why does `operator()` take `Args...` and not `Args&&...`?
-
-    * While taking `Args&&...` would minimize the amount of copies/moves, it would be a pessimization for small value types. Also, taking `Args...` is consistent with how `std::function` works.
-
-* `function_ref<Signature>`'s signature currently only accepts any combination of `const` and `noexcept`. Should this be extended to include *ref-qualifiers*? This would mean that `function_ref::operator()` would first cast the referenced callable to either an *lvalue reference* or *rvalue reference* (depending on `Signature`'s ref qualifiers) before invoking it. See P0045R1 [^p0045r1] and N4159 [^n4159]) for additional context.
-
-    * LEWG agreed that `const` and `noexcept` have useful cases, but we could not find enough motivation to include support for *ref-qualified* signatures. Nevertheless, this could be added as a non-breaking extension to `function_ref` in the future.
-
-* Constructing a `std::function<Signature>` from a `function_ref<Signature>` is completely different from constructing a `std::string` from a `std::string_view`: the latter does actually create a copy while the former remains a reference. It may be reasonable to prevent implicit conversions from `function_ref` to `std::function` in order to avoid surprising dangerous behavior.
-
-    * LEWG decided to not prevent `std::function` construction from `std::function_ref` as it would special-case `std::function` and there are other utilities in the Standard Library (and outside of it) that would need a similar change (e.g. `std::bind`).
-
-* `function_ref::operator()` is not currently marked as `constexpr` due to implementation issues. I could not figure a way to implement a `constexpr`-friendly `operator()`. Is there any possibility it could be marked as `constexpr` to increase the usefulness of `function_ref`?
-
-    * We agreed that there is probably no way of currently having a `constexpr` `function_ref::operator()` and that we do not want to impose that burden on implementations.
-
-* Should the `!f` precondition when constructing `function_ref` from an instance `f` of `std::function` be removed? The behavior in that case is well-defined, as `f` is guarateed to throw on invocation.
-
-    * LEWG decided to remove the precondition as invoking a default-constructed instance of `std::function` is well-defined.
-
-* The `std::is_nothrow_invocable` constraint in `function_ref` construction/assignment for `noexcept` signatures prevents users from providing a non-`noexcept` function, even if they know that it cannot ever throw (e.g. C functions). Should this constraint be removed? Should an `explicit` constructor without the constraint be provided?
-
-    * LEWG agreed that the constraint should be kept and no extra constructors should be added as users can use a `noexcept` lambda to achieve the same result.
-
-* Propagating `const` to `function_ref::operator()` doesn't make sense when looking at `function_ref` as a simple "reference" class. `const` instances of `function_ref` should be able to invoke a `mutable` lambda, as the state of `function_ref` itself doesn't change. E.g.
-
-    ```cpp
-    auto l0 = []() mutable { };
-    const function_ref<void()> fr{l0};
-
-    fr(); // Currently a compilation error
-    ```
-
-    An alternative is to only propagate `noexcept` from the signature to `function_ref::operator()`, and unconditionally `const`-qualify `function_ref::operator()`. Do we want this?
-
-    * LEWG agreed to mark `function_ref::operator()` `const`, unconditionally.
-
-* We want to avoid double indirection when a `function_ref` instance is initialized with a `reference_wrapper`. `function_ref` could just copy the pointer stored inside the `reference_wrapper` instead of pointing to the wrapper itself. This cannot be covered by the *as-if* rule as it changes program semantics. E.g.
-
-    ```cpp
-    auto l0 = []{ };
-    auto l1 = []{ };
-    auto rw = std::ref(l0);
-
-    function_ref<void()> fr{rw};
-    fr(); // Invokes `l0`
-
-    rw = l1;
-    fr(); // What is invoked?
-    ```
-
-    Is adding wording to handle `std::reference_wrapper` as a special case desirable?
-
-    * LEWG decided that special-casing `std::reference_wrapper` is undesirable.
-
-* Is it possible and desirable to remove `function_ref`'s template assignment operator from `F&&` and rely on an implicit conversion to `function_ref` + the default copy assignment operator?
-
-    * LEWG deferred this question to LWG.
-
-* Should `function_ref` only store a `void*` pointer for the callable object, or a `union`? In the first case, seemingly innocent usages will result in undefined behavior:
-
-    ```cpp
-    void foo();
-    function_ref<void()> f{&foo};
-    f(); // Undefined behavior
-    ```
-
-    ```cpp
-    struct foo { void bar(); }
-    function_ref<void(foo)> f{&foo::bar};
-    f(foo{}); // Undefined behavior
-    ```
-
-    If a `union` is stored instead, the first usage could be well-formed without any extra overhead (assuming `sizeof(void*) == sizeof(void(*)())`). The second usage could also be made well-formed, but with size overhead as `sizeof(void(C::*)()) > sizeof(void*)`.
-
-    Regardless, the exposition-only members should clearly illustrate the outcome of this decision.
-
-    Note that if we want the following to compile and be well-defined, a `void(*)()` would have to be stored inside `function_ref`:
-
-    ```cpp
-    void foo();
-    function_ref<void()> f{foo};
-    f();
-    ```
-
-    * LEWG agreed that `function_ref` should fully support the `Callable` concept.
-
-* Should the `function_ref(F&&)` deduction guide take its argument by value instead? This could simplify the wording.
-
-    * LEWG deferred this question to LWG.
+Thanks to **Jens Maurer** for encouraging participation and **Tomasz Kamiński** for the thorough wording review.
 
 
 ## References
 
-[^passingfunctionstofunctions]: <https://vittorioromeo.info/index/blog/passing_functions_to_functions.html#benchmark---generated-assembly>
-[^llvmfunctionref]: <http://llvm.org/doxygen/classllvm_1_1function__ref_3_01Ret_07Params_8_8_8_08_4.html>
-[^githubsearch0]: <https://github.com/search?q=org%3Allvm-mirror+function_ref&type=Code>
-[^folly]: <https://github.com/facebook/folly>
-[^follyfunctionref]: <https://github.com/facebook/folly/blob/master/folly/Function.h#L743-L824>
-[^follyusages]: <https://github.com/search?q=org%3Afacebook+FunctionRef&type=Code>
-[^githubsearch1]: <https://github.com/search?utf8=%E2%9C%93&q=function_ref+AND+NOT+llvm+AND+NOT+folly+language%3AC%2B%2B&type=Code>
-[^githubsearch2]: <https://github.com/search?utf8=%E2%9C%93&q=function_view+AND+NOT+llvm+AND+NOT+folly+language%3AC%2B%2B&type=Code>
-[^githubsearch3]: <https://github.com/search?utf8=%E2%9C%93&q=functionref+AND+NOT+llvm+AND+NOT+folly+language%3AC%2B%2B&type=Code>
-[^githubsearch4]: <https://github.com/search?utf8=%E2%9C%93&q=functionview+AND+NOT+llvm+AND+NOT+folly+language%3AC%2B%2B&type=Code>
-[^gistub]: <https://gist.github.com/SuperV1234/a41eb1c825bfbb43f595b13bd4ea99c3>
-[^stringview]: <http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2013/n3762.html>
-[^jmfunctionview]: <http://foonathan.net/blog/2017/01/20/function-ref-implementation.html>
-[^jmstringview]: <http://foonathan.net/blog/2017/03/22/string_view-temporary.html>
-[^lifetimes]: <https://github.com/isocpp/CppCoreGuidelines/blob/master/docs/Lifetimes%20I%20and%20II%20-%20v0.9.1.pdf>
-[^gdb]: <https://www.gnu.org/software/gdb/>
-[^p0045r1]: <http://wg21.link/p0045r1>
-[^n4159]: <http://wg21.link/N4159>
-[^gdbfnview]: <https://sourceware.org/git/gitweb.cgi?p=binutils-gdb.git;a=blob;f=gdb/common/function-view.h>
+[^jmfunctionview]: _Implementing function_view is harder than you might think_
+http://foonathan.net/blog/2017/01/20/function-ref-implementation.html
+[^boundmemberfunctions]: Extracting the Function Pointer from a Bound Pointer to Member Function.
+_Using the GNU Compiler Collection (GCC)_
+https://gcc.gnu.org/onlinedocs/gcc/Bound-member-functions.html
+[^p0792r5]: _function_ref: a non-owning reference to a Callable_
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p0792r5.html
+[^p0288r9]: _move_only_function_
+http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2021/p0288r9.html
+[^functionrefstringview]: _On function_ref and string_view_
+https://quuxplusone.github.io/blog/2019/05/10/function-ref-vs-string-view/
+[^llvmfuncref]: The function_ref class template.
+_LLVM Programmer's Manual_
+https://llvm.org/docs/ProgrammersManual.html#the-function-ref-class-template
+[^stringviewtemp]: _std::string_view accepting temporaries: good idea or horrible pitfall?_
+https://www.foonathan.net/2017/03/string_view-temporary/
+[^p2511r0]: _Beyond operator(): NTTP callables in type-erased call wrappers_
+http://wg21.link/p2511r0
+[^p2472r1]: _make function_ref more functional_
+http://wg21.link/p2472r1
