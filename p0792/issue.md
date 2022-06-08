@@ -26,6 +26,10 @@ Jarrad Waterloo &lt;descender76@gmail.com&gt;</tr>
 
 ## Changelog
 
+#### R10
+
+- integrate the additions from `make function_ref more functional` [^p2472r3] 
+
 #### R9
 
 - Declare the main template as variadic for future extension;
@@ -467,6 +471,22 @@ For good or bad, the expression <code>&amp;_qualified-id_</code> that retrieves 
 
 The wording is relative to [N4901](https://wg21.link/N4901).
 
+Add new templates to 20.2.1 [utility.syn], header `<utility>` synopsis after `in_place_index_t` and `in_place_index`:
+
+```cpp
+namespace std {
+  [...]
+
+  // nontype argument tag
+  template<auto V>
+    struct nontype_t {
+      explicit nontype_t() = default;
+    };
+
+  template<auto V> inline constexpr nontype_t<V> nontype{};
+}
+```
+
 Add the template to [[functional.syn]](https://eel.is/c++draft/functional.syn), header `<functional>` synopsis:
 
 > [...]
@@ -512,6 +532,9 @@ namespace std
     <i>// [func.wrap.ref.ctor], constructors and assignment operators</i>
     template&lt;class F&gt; function_ref(F*) noexcept;
     template&lt;class F&gt; constexpr function_ref(F&amp;&amp;) noexcept;
+    template<auto F> constexpr function_ref(nontype_t<F>) noexcept;
+    template<auto F, class T> constexpr function_ref(nontype_t<F>, T& state) noexcept;
+    template<auto F, class T> constexpr function_ref(nontype_t<F>, cv T* state) noexcept;
 
     constexpr function_ref(const function_ref&amp;) noexcept = default;
     constexpr function_ref&amp; operator=(const function_ref&amp;) noexcept = default;
@@ -527,6 +550,10 @@ namespace std
   <i>// [func.wrap.ref.deduct], deduction guides</i>
   template&lt;class F&gt;
     function_ref(F*) -> function_ref&lt;F&gt;;
+  template<auto F>
+    function_ref(nontype_t<F>) -> function_ref<std::remove_pointer_t<decltype(F)>;
+  template<auto F>
+    function_ref(nontype_t<F>, auto) -> function_ref<see below>;
 }
 </pre>
 
@@ -535,7 +562,7 @@ namespace std
 > An object of class <code>function_ref&lt;R(Args\.\.\.) _cv_ noexcept(_noex_)&gt;</code> stores a pointer to thunk _`thunk-ptr`_ and a bound entity _`bound-entity`_.
 > The bound entity has an implementation-defined type `BoundEntityType`.
 > `BoundEntityType` is trivially copyable and models `copyable`.
-> `BoundEntityType` is capable of storing a pointer to object value, a pointer to function value, or a null pointer value.
+> `BoundEntityType` is capable of storing a pointer to object value, a pointer to function value, an unused value or a null pointer value.
 > A thunk is a function of signature <code>R(BoundEntityType, Args&amp;&amp;\.\.\.) noexcept(_noex_)</code>.
 >
 > Each specialization of `function_ref` is a trivially copyable type [[basic.types]](https://eel.is/c++draft/basic.types).
@@ -591,6 +618,35 @@ template<class F> constexpr function_ref(F&& f);
 
 <br>
 
+```cpp
+template<auto f> constexpr function_ref(nontype_t<f>) noexcept;
+```
+
+> *Constraints:* `is-invocable-using<decltype(f)>` is `true`.
+> 
+> *Effects:* Initializes `bound-entity` with an unused value, and `thunk-ptr` to address of a function such that `thunk-ptr(bound-entity, call-args...)` is expression equivalent to `invoke_r<R>(f, call-args...)`.
+
+```cpp
+template<auto f, class T> constexpr function_ref(nontype_t<f>, T& state) noexcept;
+```
+
+> 
+> *Constraints:* `is-invocable-using<decltype(f), cv T&>` is true.
+> 
+> *Effects:* Initializes `bound-entity` with `addressof(state)`, and `thunk-ptr` to address of a function such that `thunk-ptr(bound-entity, call-args...)` is expression equivalent to `invoke_r<R>(f, static_cast<T cv&>(bound-entity), call-args...)`.
+
+<br>
+
+```cpp
+template<auto f, class T> constexpr function_ref(nontype_t<f>, cv T* state) noexcept;
+```
+
+> 
+> *Constraints:* `is-invocable-using<decltype(f), cv T*>` is `true`.
+> 
+> *Effects:* Initializes `bound-entity` with `state`, and `thunk-ptr` to address of a function such that `thunk-ptr(bound-entity, call-args...)` is expression equivalent to `invoke_r<R>(f, static_cast<cv T*>(bound-entity), call-args...)`.
+
+<br>
 
 ```
 template<class T> function_ref& operator=(T) = delete;
@@ -625,6 +681,24 @@ template<class F>
   function_ref(F*) -> function_ref<F>;
 ```
 > *Constraints:* `is_function_v<F>` is `true`.
+
+```cpp
+template<auto f>
+  function_ref(nontype_t<f>) -> function_ref<std::remove_pointer_t<decltype(f)>;
+```
+> *Constraints:* `is_function_v<f>` is `true`.
+
+```cpp
+template<auto f>
+  function_ref(nontype_t<f>, auto) -> function_ref<see below>;
+```
+> *Constraints:*
+> - `decltype(f)` is of the form <code>R(G::*)(A\.\.\.) <i>cv</i> &amp;<sub><i>opt</i></sub> noexcept(<i>E</i>)</code> for a class type `G`, or
+> - `decltype(f)` is of the form <code>R G::*</code> for a class type `G`, in which case let `A...` be an empty pack, or
+> - `decltype(f)` is of the form <code>R(U, A\.\.\.) noexcept(<i>E</i>)</code>.
+>
+> *Remarks:* The deduced type is <code>function_ref&lt;R(A\.\.\.) noexcept(<i>E</i>)&gt;</code>.
+
 
 <br>
 
@@ -672,5 +746,5 @@ https://llvm.org/docs/ProgrammersManual.html#the-function-ref-class-template
 https://www.foonathan.net/2017/03/string_view-temporary/
 [^p2511r0]: _Beyond operator(): NTTP callables in type-erased call wrappers_
 http://wg21.link/p2511r0
-[^p2472r1]: _make function_ref more functional_
-http://wg21.link/p2472r1
+[^p2472r3]: _make function_ref more functional_
+http://wg21.link/p2472r3
