@@ -9,8 +9,8 @@ blockquote { color: inherit !important }
 </style>
 
 <table><tbody>
-<tr><th>Doc. no.:</th>    <td>P0792R9</td></tr>
-<tr><th>Date:</th>        <td>2022-04-25</td></tr>
+<tr><th>Doc. no.:</th>    <td>D0792R10</td></tr>
+<tr><th>Date:</th>        <td>2022-06-12</td></tr>
 <tr><th>Audience:</th>    <td>LWG</td></tr>
 <tr><th>Reply-to:</th>    <td>Vittorio Romeo &lt;vittorio.romeo@outlook.com&gt;<br>
 Zhihao Yuan &lt;zy@miator.net&gt;<br>
@@ -28,7 +28,7 @@ Jarrad Waterloo &lt;descender76@gmail.com&gt;</tr>
 
 #### R10
 
-- integrate the additions from `make function_ref more functional` [^p2472r3] 
+- Integrate the `nontype_t` constructors.[^p2472r3]
 
 #### R9
 
@@ -444,7 +444,7 @@ P0792R5-R7 wording gives **Behavior B.1**.
 
 ### Additional information
 
-P2472R1 "make `function_ref` more functional" [^p2472r1] suggests a way to initialize `function_ref` from pointer-to-members without dangling in all contexts:
+P2472R3 "make `function_ref` more functional" [^p2472r3] suggests a way to initialize `function_ref` from pointer-to-members without dangling in all contexts:
 
 ```cpp
 function_ref<void(Ssh&)> cmd = nontype<&Ssh::connect>;
@@ -466,10 +466,12 @@ For good or bad, the expression <code>&amp;_qualified-id_</code> that retrieves 
 
 - LEWG further requested making converting assignment from anything other than functions and function pointers ill-formed. Note that `function_ref` will still be copy-assignable.
 
+- LEWG achieved consensus on P2472R3[^p2472r3] and the wording is merged here. This change brings back the pointer-to-member support in a different form.
+
 
 ## Wording
 
-The wording is relative to [N4901](https://wg21.link/N4901).
+The wording is relative to [N4910](https://wg21.link/N4910).
 
 Add new templates to 20.2.1 [utility.syn], header `<utility>` synopsis after `in_place_index_t` and `in_place_index`:
 
@@ -744,7 +746,7 @@ _LLVM Programmer's Manual_
 https://llvm.org/docs/ProgrammersManual.html#the-function-ref-class-template
 [^stringviewtemp]: _std::string_view accepting temporaries: good idea or horrible pitfall?_
 https://www.foonathan.net/2017/03/string_view-temporary/
-[^p2511r0]: _Beyond operator(): NTTP callables in type-erased call wrappers_
-http://wg21.link/p2511r0
+[^p2511r1]: _Beyond operator(): NTTP callables in type-erased call wrappers_
+https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2022/p2511r1.html
 [^p2472r3]: _make function_ref more functional_
-http://wg21.link/p2472r3
+https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2022/p2472r3.html
