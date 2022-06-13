@@ -10,7 +10,7 @@ blockquote { color: inherit !important }
 
 <table><tbody>
 <tr><th>Doc. no.:</th>    <td>D0792R10</td></tr>
-<tr><th>Date:</th>        <td>2022-06-12</td></tr>
+<tr><th>Date:</th>        <td>2022-06-13</td></tr>
 <tr><th>Audience:</th>    <td>LWG</td></tr>
 <tr><th>Reply-to:</th>    <td>Vittorio Romeo &lt;vittorio.romeo@outlook.com&gt;<br>
 Zhihao Yuan &lt;zy@miator.net&gt;<br>
@@ -28,7 +28,7 @@ Jarrad Waterloo &lt;descender76@gmail.com&gt;</tr>
 
 #### R10
 
-- Integrate the `nontype_t` constructors.[^p2472r3]
+- Integrate the [`nontype_t`](#Additional-information) constructors.
 
 #### R9
 
@@ -444,7 +444,7 @@ P0792R5-R7 wording gives **Behavior B.1**.
 
 ### Additional information
 
-P2472R3 "make `function_ref` more functional" [^p2472r3] suggests a way to initialize `function_ref` from pointer-to-members without dangling in all contexts:
+P2472 "make `function_ref` more functional" [^p2472r3] suggests a way to initialize `function_ref` from pointer-to-members without dangling in all contexts:
 
 ```cpp
 function_ref<void(Ssh&)> cmd = nontype<&Ssh::connect>;
@@ -466,28 +466,28 @@ For good or bad, the expression <code>&amp;_qualified-id_</code> that retrieves 
 
 - LEWG further requested making converting assignment from anything other than functions and function pointers ill-formed. Note that `function_ref` will still be copy-assignable.
 
-- LEWG achieved consensus on P2472R3[^p2472r3] and the wording is merged here. This change brings back the pointer-to-member support in a different form.
+- LEWG achieved consensus on [P2472R3](#Additional-information), and the wording is merged here. This change brings back the pointer-to-member support in a different form.
 
 
 ## Wording
 
 The wording is relative to [N4910](https://wg21.link/N4910).
 
-Add new templates to 20.2.1 [utility.syn], header `<utility>` synopsis after `in_place_index_t` and `in_place_index`:
+Add new templates to [[utility.syn]](https://eel.is/c++draft/utility.syn), header `<utility>` synopsis, after `in_place_index_t` and `in_place_index`:
 
-```cpp
+<pre>
 namespace std {
   [...]
 
-  // nontype argument tag
-  template<auto V>
+  <i>// nontype argument tag</i>
+  template&lt;auto V&gt;
     struct nontype_t {
       explicit nontype_t() = default;
     };
 
-  template<auto V> inline constexpr nontype_t<V> nontype{};
+  template&lt;auto V&gt; inline constexpr nontype_t&lt;V&gt; nontype{};
 }
-```
+</pre>
 
 Add the template to [[functional.syn]](https://eel.is/c++draft/functional.syn), header `<functional>` synopsis:
 
@@ -534,9 +534,11 @@ namespace std
     <i>// [func.wrap.ref.ctor], constructors and assignment operators</i>
     template&lt;class F&gt; function_ref(F*) noexcept;
     template&lt;class F&gt; constexpr function_ref(F&amp;&amp;) noexcept;
-    template<auto F> constexpr function_ref(nontype_t<F>) noexcept;
-    template<auto F, class T> constexpr function_ref(nontype_t<F>, T& state) noexcept;
-    template<auto F, class T> constexpr function_ref(nontype_t<F>, cv T* state) noexcept;
+    template&lt;auto f&gt; constexpr function_ref(nontype_t&lt;f&gt;) noexcept;
+    template&lt;auto f, class T&gt;
+      constexpr functIon_ref(nontype_t&lt;f&gt;, T&) noexcept;
+    template&lt;auto f, class T&gt;
+      constexpr function_ref(nontype_t&lt;f&gt;, <i>cv</i> T*) noexcept;
 
     constexpr function_ref(const function_ref&amp;) noexcept = default;
     constexpr function_ref&amp; operator=(const function_ref&amp;) noexcept = default;
@@ -552,10 +554,10 @@ namespace std
   <i>// [func.wrap.ref.deduct], deduction guides</i>
   template&lt;class F&gt;
     function_ref(F*) -> function_ref&lt;F&gt;;
-  template<auto F>
-    function_ref(nontype_t<F>) -> function_ref<std::remove_pointer_t<decltype(F)>;
-  template<auto F>
-    function_ref(nontype_t<F>, auto) -> function_ref<see below>;
+  template&lt;auto F&gt;
+    function_ref(nontype_t&lt;F&gt;) -> function_ref&lt;remove_pointer_t&lt;decltype(F)&gt;;
+  template&lt;auto F&gt;
+    function_ref(nontype_t&lt;F&gt;, auto) -> function_ref&lt;<i>see below</i>&gt;;
 }
 </pre>
 
@@ -564,7 +566,7 @@ namespace std
 > An object of class <code>function_ref&lt;R(Args\.\.\.) _cv_ noexcept(_noex_)&gt;</code> stores a pointer to thunk _`thunk-ptr`_ and a bound entity _`bound-entity`_.
 > The bound entity has an implementation-defined type `BoundEntityType`.
 > `BoundEntityType` is trivially copyable and models `copyable`.
-> `BoundEntityType` is capable of storing a pointer to object value, a pointer to function value, an unused value or a null pointer value.
+> `BoundEntityType` is capable of storing a pointer to object value, a pointer to function value, an unused value, or a null pointer value.
 > A thunk is a function of signature <code>R(BoundEntityType, Args&amp;&amp;\.\.\.) noexcept(_noex_)</code>.
 >
 > Each specialization of `function_ref` is a trivially copyable type [[basic.types]](https://eel.is/c++draft/basic.types).
@@ -620,33 +622,37 @@ template<class F> constexpr function_ref(F&& f);
 
 <br>
 
-```cpp
+```
 template<auto f> constexpr function_ref(nontype_t<f>) noexcept;
 ```
 
-> *Constraints:* `is-invocable-using<decltype(f)>` is `true`.
+> *Constraints:* <code><i>is-invocable-using</i>&lt;decltype(f)&gt;</code> is `true`.
 > 
-> *Effects:* Initializes `bound-entity` with an unused value, and `thunk-ptr` to address of a function such that `thunk-ptr(bound-entity, call-args...)` is expression equivalent to `invoke_r<R>(f, call-args...)`.
-
-```cpp
-template<auto f, class T> constexpr function_ref(nontype_t<f>, T& state) noexcept;
-```
-
-> 
-> *Constraints:* `is-invocable-using<decltype(f), cv T&>` is true.
-> 
-> *Effects:* Initializes `bound-entity` with `addressof(state)`, and `thunk-ptr` to address of a function such that `thunk-ptr(bound-entity, call-args...)` is expression equivalent to `invoke_r<R>(f, static_cast<T cv&>(bound-entity), call-args...)`.
+> *Effects:* Initializes _`bound-entity`_ with an unused value, and _`thunk-ptr`_ to address of a function such that <code>_thunk-ptr_(_bound-entity_, _call-args_\.\.\.)</code> is expression equivalent to <code>invoke_r&lt;R&gt;(f, _call-args_\.\.\.)</code>.
 
 <br>
 
-```cpp
-template<auto f, class T> constexpr function_ref(nontype_t<f>, cv T* state) noexcept;
+```
+template<auto f, class T>
+  constexpr function_ref(nontype_t<f>, T& obj) noexcept;
 ```
 
 > 
-> *Constraints:* `is-invocable-using<decltype(f), cv T*>` is `true`.
+> *Constraints:* <code><i>is-invocable-using</i>&lt;decltype(f), <i>cv</i> T&amp;&gt;</code> is `true`.
 > 
-> *Effects:* Initializes `bound-entity` with `state`, and `thunk-ptr` to address of a function such that `thunk-ptr(bound-entity, call-args...)` is expression equivalent to `invoke_r<R>(f, static_cast<cv T*>(bound-entity), call-args...)`.
+> *Effects:* Initializes _`bound-entity`_ with `addressof(obj)`, and _`thunk-ptr`_ to address of a function such that <code>_thunk-ptr_(_bound-entity_, _call-args_\.\.\.)</code> is expression equivalent to <code>invoke_r&lt;R&gt;(f, static_cast&lt;_cv_ T&amp;&gt;(obj), _call-args_\.\.\.)</code>.
+
+<br>
+
+<pre>
+template&lt;auto f, class T&gt;
+  constexpr function_ref(nontype_t&lt;f&gt;, <i>cv</i> T* obj) noexcept;
+</pre>
+
+> 
+> *Constraints:* <code><i>is-invocable-using</i>&lt;decltype(f), <i>cv</i> T*&gt;</code> is `true`.
+> 
+> *Effects:* Initializes _`bound-entity`_ with `obj`, and _`thunk-ptr`_ to address of a function such that <code>_thunk-ptr_(_bound-entity_, _call-args_\.\.\.)</code> is expression equivalent to <code>invoke_r&lt;R&gt;(f, obj, _call-args_\.\.\.)</code>.
 
 <br>
 
@@ -684,16 +690,20 @@ template<class F>
 ```
 > *Constraints:* `is_function_v<F>` is `true`.
 
-```cpp
-template<auto f>
-  function_ref(nontype_t<f>) -> function_ref<std::remove_pointer_t<decltype(f)>;
-```
-> *Constraints:* `is_function_v<f>` is `true`.
+<br>
 
-```cpp
-template<auto f>
-  function_ref(nontype_t<f>, auto) -> function_ref<see below>;
 ```
+template<auto f>
+  function_ref(nontype_t<f>) -> function_ref<remove_pointer_t<decltype(f)>;
+```
+> *Constraints:* `is_function_v<remove_pointer_t<decltype(f)>` is `true`.
+
+<br>
+
+<pre>
+template&lt;auto f&gt;
+  function_ref(nontype_t&lt;f&gt;, auto) -> function_ref&lt;<i>see below</i>&gt;;
+</pre>
 > *Constraints:*
 > - `decltype(f)` is of the form <code>R(G::*)(A\.\.\.) <i>cv</i> &amp;<sub><i>opt</i></sub> noexcept(<i>E</i>)</code> for a class type `G`, or
 > - `decltype(f)` is of the form <code>R G::*</code> for a class type `G`, in which case let `A...` be an empty pack, or
@@ -716,7 +726,7 @@ template<auto f>
 ## Implementation Experience
 
 A complete implementation is available from
-<span style="color: rgb(185, 208, 240);">■</span>&nbsp;[zhihaoy/nontype_functional@p0792r8](https://github.com/zhihaoy/nontype_functional/tree/p0792r8).
+<span style="color: rgb(185, 208, 240);">■</span>&nbsp;[zhihaoy/nontype_functional@v0.8.1](https://github.com/zhihaoy/nontype_functional/tree/v0.8.1).
 
 Many facilities similar to `function_ref` exist and are widely used in large codebases. See [Survey](#Survey) for details.
 
