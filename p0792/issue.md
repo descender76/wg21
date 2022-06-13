@@ -554,10 +554,10 @@ namespace std
   <i>// [func.wrap.ref.deduct], deduction guides</i>
   template&lt;class F&gt;
     function_ref(F*) -> function_ref&lt;F&gt;;
-  template&lt;auto F&gt;
-    function_ref(nontype_t&lt;F&gt;) -> function_ref&lt;remove_pointer_t&lt;decltype(F)&gt;;
-  template&lt;auto F&gt;
-    function_ref(nontype_t&lt;F&gt;, auto) -> function_ref&lt;<i>see below</i>&gt;;
+  template&lt;auto f&gt;
+    function_ref(nontype_t&lt;f&gt;) -> function_ref&lt;<i>see below</i>&gt;;
+  template&lt;auto f&gt;
+    function_ref(nontype_t&lt;f&gt;, auto) -> function_ref&lt;<i>see below</i>&gt;;
 }
 </pre>
 
@@ -692,11 +692,16 @@ template<class F>
 
 <br>
 
-```
-template<auto f>
-  function_ref(nontype_t<f>) -> function_ref<remove_pointer_t<decltype(f)>;
-```
-> *Constraints:* `is_function_v<remove_pointer_t<decltype(f)>` is `true`.
+<pre>
+template&lt;auto f&gt;
+  function_ref(nontype_t&lt;f&gt;) -> function_ref&lt;<i>see below</i>&gt;;
+</pre>
+>
+> Let `F` be `remove_pointer_t<decltype(f)>`.
+>
+> *Constraints:* `is_function_v<F>` is `true`.
+>
+> *Remarks:* The deduced type is `function_ref<F>`.
 
 <br>
 
